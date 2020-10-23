@@ -1,0 +1,29 @@
+From 8cc3d8a5497054dfdf3afccd3e4694c84684ab56 Mon Sep 17 00:00:00 2001
+From: dzy <dzy@rock-chips.com>
+Date: Tue, 26 Feb 2019 11:35:07 +0800
+Subject: [PATCH 2/2] DualScreen:improve be373,remove
+ resource-zh-rCN:'dual_screen_ver_hor_entries'.
+
+Change-Id: Ifeabd320e21f06532a8ad163794522352f406288
+---
+ res/values-zh-rCN/arrays.xml | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/res/values-zh-rCN/arrays.xml b/res/values-zh-rCN/arrays.xml
+index 2ef6881..e127220 100755
+--- a/res/values-zh-rCN/arrays.xml
++++ b/res/values-zh-rCN/arrays.xml
+@@ -29,10 +29,6 @@
+     <item msgid="5345178126174698955">"太平洋"</item>
+     <item msgid="8392017019801393511">"全部"</item>
+   </string-array>
+-  <string-array name="dual_screen_ver_hor_entries">
+-    <item msgid="3342301044271213232">横向显示</item>
+-    <item msgid="3342301044271121323">纵向显示</item>
+-  </string-array>
+   <string-array name="screen_timeout_entries">
+     <item>"永不休眠"</item>
+     <item msgid="3342301044271143016">"15秒"</item>
+-- 
+1.9.1
+

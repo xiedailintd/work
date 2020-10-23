@@ -1,0 +1,42 @@
+From 4292d870749d4683fec8bed130e210c985c35fb5 Mon Sep 17 00:00:00 2001
+From: libin <bin.li@rock-chips.com>
+Date: Wed, 30 Jan 2019 09:40:45 +0800
+Subject: [PATCH] DualScreen: 1.Use property "persist.sys.rotation.efull" to
+ enable external screen full display. 2.Use property
+ "persist.sys.rotation.einit" to set rotation about external screen.
+
+Tip:
+   Depend on commit of frameworks/base/
+   'Add property persist.sys.rotation.efulil ..'
+   https://10.10.10.29/64597
+
+Change-Id: Ic3877c9f9e731b91969e61b88e47acc4bb5abda4
+Signed-off-by: libin <bin.li@rock-chips.com>
+---
+ services/surfaceflinger/DisplayDevice.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/services/surfaceflinger/DisplayDevice.cpp b/services/surfaceflinger/DisplayDevice.cpp
+index 3b16130..7da6c31 100755
+--- a/services/surfaceflinger/DisplayDevice.cpp
++++ b/services/surfaceflinger/DisplayDevice.cpp
+@@ -538,6 +538,8 @@ void DisplayDevice::setProjection(int orientation,
+ #endif
+ 
+ #if !RK_VR & RK_HW_ROTATION
++#if 0
++
+     bool isHdmiScreen = mType == DisplayDevice::DISPLAY_EXTERNAL;
+     if (isHdmiScreen) {
+         int eInitOrientation = 0;
+@@ -616,6 +618,7 @@ void DisplayDevice::setProjection(int orientation,
+         }
+         ALOGV("update frame [%d,%d]",frame.getWidth(),frame.getHeight());
+     }
++#endif
+     if (mType == DisplayDevice::DISPLAY_PRIMARY) {
+         mClientOrientation = orientation;
+         orientation = (mHardwareOrientation + orientation) % 4;
+-- 
+2.7.4
+

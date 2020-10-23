@@ -1,0 +1,380 @@
+From 74b7d2dfb68fa8ea99dcd009f633dcdc179a1eac Mon Sep 17 00:00:00 2001
+From: dzy <dzy@rock-chips.com>
+Date: Tue, 29 Jan 2019 16:44:59 +0800
+Subject: [PATCH] DualScreen: 1.Add property "persist.sys.rotation.efull" to
+ enable external screen full display.             2.Add property
+ "persist.sys.rotation.einit" to set rotation about external screen.          
+   3.Fix presentation window draw with external display info.
+
+Change-Id: Ifd66da23a451b49ebc9623c1bce177900b286607
+
+diff --git a/core/java/android/view/IWindowManager.aidl b/core/java/android/view/IWindowManager.aidl
+index 86b9d4f..406fa75 100644
+--- a/core/java/android/view/IWindowManager.aidl
++++ b/core/java/android/view/IWindowManager.aidl
+@@ -444,4 +444,5 @@ interface IWindowManager
+     boolean isDualConfig();
+     boolean getDualScreenFlag();
+     int getSecondDisplayTaskId();
++    boolean isUseSecondDisplayInfo();
+ }
+diff --git a/core/java/android/view/WindowManagerPolicy.java b/core/java/android/view/WindowManagerPolicy.java
+index 5317b59..514e145 100644
+--- a/core/java/android/view/WindowManagerPolicy.java
++++ b/core/java/android/view/WindowManagerPolicy.java
+@@ -946,7 +946,7 @@ public interface WindowManagerPolicy {
+      *                 so you can use its Rect.  Otherwise null.
+      */
+     public void layoutWindowLw(WindowState win, WindowState attached);
+-    public void layoutWindowLw(WindowState win, WindowState attached,int width,int height);
++    public void layoutWindowLw(WindowState win, WindowState attached,DisplayInfo info);
+ 
+ 
+     /**
+diff --git a/services/core/java/com/android/server/display/DisplayManagerService.java b/services/core/java/com/android/server/display/DisplayManagerService.java
+index 39f9d20..d09a288 100755
+--- a/services/core/java/com/android/server/display/DisplayManagerService.java
++++ b/services/core/java/com/android/server/display/DisplayManagerService.java
+@@ -52,6 +52,7 @@ import android.util.Slog;
+ import android.util.SparseArray;
+ import android.view.Display;
+ import android.view.DisplayInfo;
++import android.view.IWindowManager;
+ import android.view.Surface;
+ import android.view.WindowManagerInternal;
+ 
+@@ -881,13 +882,8 @@ public final class DisplayManagerService extends SystemService {
+                 isDefaultDisplay = true;
+             } else {
+                 isDefaultDisplay = false;
+-                String rotation = SystemProperties.get("persist.orientation.vhinit");
+-                int default_value = (device.getDisplayDeviceInfoLocked().width < device.getDisplayDeviceInfoLocked().height)?1:0;
+-                if(default_value == 1) {//竖屏
+-                   device.getDisplayDeviceInfoLocked().rotation = ("0".equals(rotation))?1:0;
+-                } else if(default_value == 0) {//横屏
+-                   device.getDisplayDeviceInfoLocked().rotation = ("1".equals(rotation))?1:0;
+-                }
++                String rotation = SystemProperties.get("persist.sys.rotation.einit","0");
++                device.getDisplayDeviceInfoLocked().rotation=Integer.valueOf(rotation);
+             }
+             configureDisplayInTransactionLocked(device);
+             device.performTraversalInTransactionLocked();
+@@ -980,7 +976,17 @@ public final class DisplayManagerService extends SystemService {
+             return;
+         }
+         display.isDefaultDisplay  = isDefaultDisplay;
+-        display.configureDisplayInTransactionLocked(device, info.state == Display.STATE_OFF, mLogicalDisplays.get(Display.DEFAULT_DISPLAY).mInfo);
++        try {
++            IWindowManager wm = IWindowManager.Stub.asInterface(ServiceManager.getService(Context.WINDOW_SERVICE));
++            if (!wm.isUseSecondDisplayInfo()) {
++                display.configureDisplayInTransactionLocked(device, info.state == Display.STATE_OFF, mLogicalDisplays.get(Display.DEFAULT_DISPLAY).mInfo);
++            } else {
++                display.configureDisplayInTransactionLocked(device, info.state == Display.STATE_OFF, null);
++            }
++        }catch(RemoteException e){
++            e.printStackTrace();
++        }
++
+ 
+         // Update the viewports if needed.
+         if (!mDefaultViewport.valid
+@@ -1599,6 +1605,7 @@ public final class DisplayManagerService extends SystemService {
+                     android.Manifest.permission.CAPTURE_SECURE_VIDEO_OUTPUT)
+                     == PackageManager.PERMISSION_GRANTED;
+         }
++
+     }
+ 
+     private final class LocalService extends DisplayManagerInternal {
+diff --git a/services/core/java/com/android/server/display/LocalDisplayAdapter.java b/services/core/java/com/android/server/display/LocalDisplayAdapter.java
+index bd718e1..16092fe 100755
+--- a/services/core/java/com/android/server/display/LocalDisplayAdapter.java
++++ b/services/core/java/com/android/server/display/LocalDisplayAdapter.java
+@@ -415,23 +415,8 @@ final class LocalDisplayAdapter extends DisplayAdapter {
+                 } else {
+                     mInfo.type = Display.TYPE_HDMI;
+                     mInfo.flags |= DisplayDeviceInfo.FLAG_PRESENTATION;
+-                    if( SystemProperties.getBoolean("ro.orientation.vhshow",false)) {
+-                        boolean noRotate = "0".equals(SystemProperties.get("ro.sf.hwrotation"));
+-                        if(noRotate && mBuiltInDisplayId == SurfaceControl.BUILT_IN_DISPLAY_ID_HDMI){
+-                            if (SystemProperties.getBoolean("ro.rotation.external", false)) {
+-                                mInfo.flags |= DisplayDeviceInfo.FLAG_ROTATES_WITH_CONTENT;
+-                            }
+-                            String value = SystemProperties.get("ro.orientation.einit");
+-                            /*if ("0".equals(value)) {
+-                                mInfo.rotation = Surface.ROTATION_0;
+-                            } else if ("90".equals(value)) {
+-                                mInfo.rotation = Surface.ROTATION_90;
+-                            } else if ("180".equals(value)) {
+-                                mInfo.rotation = Surface.ROTATION_180;
+-                            } else if ("270".equals(value)) {
+-                                mInfo.rotation = Surface.ROTATION_270;
+-                            }*/
+-                        }
++                    if (SystemProperties.getBoolean("ro.sys.rotation.sensor", false)) {
++                        mInfo.flags |= DisplayDeviceInfo.FLAG_ROTATES_WITH_CONTENT;
+                     }
+                     mInfo.name = getContext().getResources().getString(
+                             com.android.internal.R.string.display_manager_hdmi_display_name);
+diff --git a/services/core/java/com/android/server/display/LogicalDisplay.java b/services/core/java/com/android/server/display/LogicalDisplay.java
+old mode 100644
+new mode 100755
+index b02f8a7..6f2c920
+--- a/services/core/java/com/android/server/display/LogicalDisplay.java
++++ b/services/core/java/com/android/server/display/LogicalDisplay.java
+@@ -67,7 +67,7 @@ final class LogicalDisplay {
+     private static final int BLANK_LAYER_STACK = -1;
+ 
+     private static final String TAG_DUALSCREEN = "DualScreen";
+-    private final boolean DEBUG_DUALSCREEN = false;
++    private final boolean DEBUG_DUALSCREEN = true;
+     private final int mDisplayId;
+     private final int mLayerStack;
+     private DisplayInfo mOverrideDisplayInfo; // set by the window manager
+@@ -79,6 +79,7 @@ final class LogicalDisplay {
+     // The display device that this logical display is based on and which
+     // determines the base metrics that it uses.
+     private DisplayDevice mPrimaryDisplayDevice;
++
+     private DisplayDeviceInfo mPrimaryDisplayDeviceInfo;
+ 
+     // True if the logical display has unique content.
+@@ -148,7 +149,26 @@ final class LogicalDisplay {
+                 mInfo.physicalXDpi = mOverrideDisplayInfo.physicalXDpi;
+                 mInfo.physicalYDpi = mOverrideDisplayInfo.physicalYDpi;
+             }
++            if(mDisplayId!=Display.DEFAULT_DISPLAY){
++                String rotation = SystemProperties.get("persist.sys.rotation.einit","0");
++                if(Integer.valueOf(rotation)%2!=0) {
++
++
++                    mInfo.appWidth = mPrimaryDisplayDeviceInfo.height;
++                    mInfo.appHeight = mPrimaryDisplayDeviceInfo.width;
++                    mInfo.logicalWidth = mPrimaryDisplayDeviceInfo.height;
++                    mInfo.logicalHeight=mPrimaryDisplayDeviceInfo.width;
++
++                }else{
++                    mInfo.appWidth = mPrimaryDisplayDeviceInfo.width;
++                    mInfo.appHeight = mPrimaryDisplayDeviceInfo.height;
++                    mInfo.logicalWidth = mPrimaryDisplayDeviceInfo.width;
++                    mInfo.logicalHeight=mPrimaryDisplayDeviceInfo.height;
++                }
++            }
+         }
++
++
+         return mInfo;
+     }
+ 
+@@ -267,6 +287,7 @@ final class LogicalDisplay {
+ 
+             mPrimaryDisplayDeviceInfo = deviceInfo;
+             mInfo = null;
++
+         }
+     }
+ 
+@@ -303,6 +324,7 @@ final class LogicalDisplay {
+ 
+         // Only grab the display info now as it may have been changed based on the requests above.
+         DisplayInfo displayInfo = getDisplayInfoLocked();
++        Slog.d("dzy","---------displayInfo="+displayInfo+device.getDisplayDeviceInfoLocked()+"    "+device.getUniqueId());
+         final DisplayDeviceInfo displayDeviceInfo = device.getDisplayDeviceInfoLocked();
+         IWindowManager wm = IWindowManager.Stub.asInterface(ServiceManager.getService(Context.WINDOW_SERVICE));
+         try{
+@@ -310,7 +332,7 @@ final class LogicalDisplay {
+                 isDualScreen = wm.getSecondDisplayTaskId() != -1;
+                 if(wm.isDualConfig()){
+                     displayInfo = info != null?info:getDisplayInfoLocked();
+-                    if(DEBUG_DUALSCREEN) Slog.v(TAG_DUALSCREEN,"LogicalDisplay configurDisplay  displayInfo = "+displayInfo);
++                    /*if(DEBUG_DUALSCREEN)*/ Slog.v("dzy","LogicalDisplay configurDisplay  displayInfo = "+displayInfo);
+                 }
+             }
+         }catch(Exception e){
+@@ -374,55 +396,20 @@ final class LogicalDisplay {
+         mTempDisplayRect.top += mDisplayOffsetY;
+         mTempDisplayRect.bottom += mDisplayOffsetY;
+         
+-        if(SystemProperties.getBoolean("persist.orientation.vhshow",false)) {
+-            Rect displayRect = new Rect(mTempLayerStackRect);
+-            if (isDefaultDisplay == false) {
+-                if (isDualScreen == true) {
+-                    displayVhShow = true;
+-                    if(diffStackRect != null) {
+-                        displayRect = new Rect(diffStackRect);
+-                    }
+-                }
+-                diffStackRect = new Rect(displayRect);     
+-                int width=displayDeviceInfo.width;
+-                int height=displayDeviceInfo.height;
+-                device.setProjectionInTransactionLocked(orientation, displayRect, new Rect(0,0,width,height));
+-                return ;
+-                //Keep mTempLayerStackRect、mTempDisplayRect、crop unchanged, will not stretch after rotation
+-            }
+-        } else {
+-            try{
+-                if(wm.getDualScreenFlag()) {
+-                    Rect stackRect = new Rect(mTempLayerStackRect);
+-                    Rect displayRect = new Rect(mTempDisplayRect);
+-                    if(DEBUG_DUALSCREEN) Slog.v(TAG_DUALSCREEN,"mTempDisplayRect ="+mTempDisplayRect);
+-                    if(displayVhShow == true) {
+-                        displayVhShow = false;
+-                      //  displayRect = new Rect(diffDisplayRect);                    
+-                        if(DEBUG_DUALSCREEN) Slog.v(TAG_DUALSCREEN,"diffDisplayRect  ------------------ ="+diffDisplayRect);
+-                        diffStackRect = null;
+-                        diffDisplayRect = null;
+-                    }
+-                    if (isDefaultDisplay == false) {
+-                        if (isDualScreen == true) {
+-                            if(diffDisplayRect != null) {
+-                                 displayRect = new Rect(diffDisplayRect);
+-                            }
+-                            if(diffStackRect != null) {
+-                                stackRect = new Rect(diffStackRect);
+-                            }
+-                        }
+-                        diffStackRect = new Rect(stackRect);
+-                        diffDisplayRect = new Rect(displayRect);
+-                        if(DEBUG_DUALSCREEN) Slog.v(TAG_DUALSCREEN,"diffDisplayRect ="+diffDisplayRect);
+-                        device.setProjectionInTransactionLocked(orientation, stackRect, displayRect);
+-                        return ;
+-                    } 
+-                }
+-            }catch(Exception e){
+-            //no handle
++
++        Slog.d(TAG_DUALSCREEN,"info=  "+device.getDisplayDeviceInfoLocked());
++        Slog.d(TAG_DUALSCREEN,"mTempDisplayRect="+mTempDisplayRect);
++        if(device.getDisplayDeviceInfoLocked().type==Display.TYPE_HDMI){
++            if(SystemProperties.getBoolean("persist.sys.rotation.efull",false)){
++               mTempDisplayRect.top=0;
++               mTempDisplayRect.left=0;
++               mTempDisplayRect.right=physWidth;
++               mTempDisplayRect.bottom=physHeight;
++
+             }
++            Slog.d(TAG_DUALSCREEN,"+++++++++mTempDisplayRect="+mTempDisplayRect);
+         }
++        Slog.d(TAG_DUALSCREEN,"-----------mTempDisplayRect="+mTempDisplayRect+"  orientation="+orientation);
+         device.setProjectionInTransactionLocked(orientation, mTempLayerStackRect, mTempDisplayRect);
+     }
+     /**
+@@ -507,5 +494,6 @@ final class LogicalDisplay {
+                 mPrimaryDisplayDevice.getNameLocked() : "null"));
+         pw.println("mBaseDisplayInfo=" + mBaseDisplayInfo);
+         pw.println("mOverrideDisplayInfo=" + mOverrideDisplayInfo);
++        pw.println("mInfo=" + mInfo);
+     }
+ }
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+index a55fee6..c0a9b31 100755
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -115,6 +115,7 @@ import android.util.Slog;
+ import android.util.SparseArray;
+ import android.util.LongSparseArray;
+ import android.view.Display;
++import android.view.DisplayInfo;
+ import android.view.Gravity;
+ import android.view.HapticFeedbackConstants;
+ import android.view.IApplicationToken;
+@@ -4601,7 +4602,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+     public void layoutWindowLw(WindowState win, WindowState attached) {
+     }
+     
+-    public void layoutWindowLw(WindowState win, WindowState attached, int width, int height) {
++    public void layoutWindowLw(WindowState win, WindowState attached, DisplayInfo info) {
+         // We've already done the navigation bar and status bar. If the status bar can receive
+         // input, we need to layout it again to accomodate for the IME window.
+         if ((win == mStatusBar && !canReceiveInput(win)) || win == mNavigationBar) {
+@@ -4655,11 +4656,12 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+                         = mOverscanScreenLeft + mOverscanScreenWidth;
+                 pf.bottom = df.bottom = of.bottom = cf.bottom
+                         = mOverscanScreenTop + mOverscanScreenHeight;
+-                
+-                pf.left = df.left = of.left = cf.left = vf.left = 0;
+-                pf.top = df.top = of.top = cf.top = vf.top = 0;
+-                pf.right = df.right = of.right = cf.right = vf.right = width;
+-                pf.bottom = df.bottom = of.bottom = cf.bottom = vf.bottom = height;
++                if(info!=null) {
++                    pf.left = df.left = of.left = cf.left = vf.left = 0;
++                    pf.top = df.top = of.top = cf.top = vf.top = 0;
++                    pf.right = df.right = of.right = cf.right = vf.right = info.logicalWidth;
++                    pf.bottom = df.bottom = of.bottom = cf.bottom = vf.bottom = info.logicalHeight;
++                }
+             }
+         } else if (attrs.type == TYPE_INPUT_METHOD) {
+             pf.left = df.left = of.left = cf.left = vf.left = mDockLeft;
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+index ae70a95..980e56e 100755
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -1542,6 +1542,9 @@ public class WindowManagerService extends IWindowManager.Stub
+ 	public List<Integer> getSecondTaskIds(){
+ 		return mSecondTaskIds;
+ 	}
++	public boolean isUseSecondDisplayInfo(){
++	    return SystemProperties.get("persist.sys.draw.einfo","1").equals("1");
++    }
+ 	
+ 	
+ 	//get All stacks
+diff --git a/services/core/java/com/android/server/wm/WindowStateAnimator.java b/services/core/java/com/android/server/wm/WindowStateAnimator.java
+index 86ff7eb..bb93d4e 100644
+--- a/services/core/java/com/android/server/wm/WindowStateAnimator.java
++++ b/services/core/java/com/android/server/wm/WindowStateAnimator.java
+@@ -1235,7 +1235,7 @@ class WindowStateAnimator {
+         if (!w.isDefaultDisplay()) {
+             // On a different display there is no system decor.  Crop the window
+             // by the screen boundaries
+-            if(mService.getDualScreenFlag()) {
++            if(!mService.isUseSecondDisplayInfo()) {
+                     if (tempInfo == null) {
+                         tempInfo = new DisplayInfo(mService.getDefaultDisplayInfoLocked()); 
+                     }
+diff --git a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+old mode 100644
+new mode 100755
+index 2ffcd83..a9ef9d2
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -991,9 +991,15 @@ class WindowSurfacePlacer {
+                     }
+                     win.mLayoutNeeded = false;
+                     win.prelayout();
+-                    //mService.mPolicy.layoutWindowLw(win, null);
+-                    DisplayInfo defaultDisplayInfo = mService.getDefaultDisplayInfoLocked();
+-                    mService.mPolicy.layoutWindowLw(win ,null ,defaultDisplayInfo.logicalWidth,defaultDisplayInfo.logicalHeight);
++
++                    if (!mService.isUseSecondDisplayInfo()) {
++                        DisplayInfo defaultDisplayInfo = mService.getDefaultDisplayInfoLocked();
++                        mService.mPolicy.layoutWindowLw(win, null, defaultDisplayInfo);
++                    } else {
++                        mService.mPolicy.layoutWindowLw(win, null, null);
++                    }
++
++
+   
+                     win.mLayoutSeq = seq;
+                     // Window frames may have changed. Update dim layer with the new bounds.
+@@ -1046,9 +1052,14 @@ class WindowSurfacePlacer {
+                     }
+                     win.mLayoutNeeded = false;
+                     win.prelayout();
+-                    //mService.mPolicy.layoutWindowLw(win, win.mAttachedWindow);
+-                    DisplayInfo defaultDisplayInfo = mService.getDefaultDisplayInfoLocked();
+-                    mService.mPolicy.layoutWindowLw(win, win.mAttachedWindow, defaultDisplayInfo.logicalWidth,defaultDisplayInfo.logicalHeight);
++                    if(!mService.isUseSecondDisplayInfo()){
++                        DisplayInfo defaultDisplayInfo = mService.getDefaultDisplayInfoLocked();
++                        mService.mPolicy.layoutWindowLw(win, win.mAttachedWindow,defaultDisplayInfo);
++                    }else{
++                        mService.mPolicy.layoutWindowLw(win, win.mAttachedWindow,null);
++                    }
++
++
+  
+                     win.mLayoutSeq = seq;
+                     if (DEBUG_LAYOUT) Slog.v(TAG,
+-- 
+2.7.4
+

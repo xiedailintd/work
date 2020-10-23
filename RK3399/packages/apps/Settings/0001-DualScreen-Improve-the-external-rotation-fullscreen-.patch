@@ -1,0 +1,186 @@
+From 2555ca294bb30e7fbea033cb4859e9af1a40cfcf Mon Sep 17 00:00:00 2001
+From: dzy <dzy@rock-chips.com>
+Date: Tue, 29 Jan 2019 16:54:34 +0800
+Subject: [PATCH] DualScreen:Improve the external rotation/fullscreen option.
+
+Change-Id: If61b836143db725a94532bc28290f941d9cbc4cf
+
+diff --git a/res/values-zh-rCN/strings.xml b/res/values-zh-rCN/strings.xml
+index a602128..27c25dd 100755
+--- a/res/values-zh-rCN/strings.xml
++++ b/res/values-zh-rCN/strings.xml
+@@ -3273,8 +3273,8 @@
+    <string name="hdmi_screen_zoom">"屏幕缩放"</string>
+    <string name="hdmi_rotation">屏幕旋转</string>
+    <string name="hdmi_dual_screen_title">双屏异显</string>
+-   <string name="hdmi_dual_screen_vh">副屏旋转开关</string>
+-   <string name="hdmi_dual_screen_Ver_hor">横向或纵向显示</string>
++   <string name="hdmi_dual_screen_vh">副屏满屏显示</string>
++   <string name="hdmi_dual_screen_Ver_hor">副屏显示方向</string>
+    
+    
+     <string name="screen_settings">屏幕设置</string>
+diff --git a/res/values/arrays.xml b/res/values/arrays.xml
+index 012fae9..9c2bbc6 100755
+--- a/res/values/arrays.xml
++++ b/res/values/arrays.xml
+@@ -1100,12 +1100,16 @@
+     </string-array>
+ 
+     <string-array name="dual_screen_ver_hor_entries">
+-        <item>Landscape</item>
+-        <item>Portrait</item>
++        <item>0</item>
++        <item>90</item>
++        <item>180</item>
++        <item>270</item>
+     </string-array>
+     <string-array name="dual_screen_ver_hor_values">
+         <item>0</item>
+         <item>1</item>
++        <item>2</item>
++        <item>3</item>
+     </string-array>
+ 
+     <string-array name="screenshot_storage_location">
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index f051ccf..563ea0e 100755
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -7960,8 +7960,8 @@
+     <string name="hdmi_disconnect">HDMI is disconnected.</string>
+     <string name="hdmi_rotation">HDMI Rotation</string>
+     <string name="hdmi_dual_screen_title">dual screen</string>
+-    <string name="hdmi_dual_screen_vh">Vice screen rotation switch</string>
+-    <string name="hdmi_dual_screen_Ver_hor">Portrait or Landscape Display</string>
++    <string name="hdmi_dual_screen_vh">Second screen full display</string>
++    <string name="hdmi_dual_screen_Ver_hor">Second display rotation</string>
+ 
+     <string name="screen_settings">Screen</string>
+     <string name="screen_interface">Output Interface</string>
+diff --git a/src/com/android/settings/HdmiSettings.java b/src/com/android/settings/HdmiSettings.java
+index f21085c..9fe6a92 100755
+--- a/src/com/android/settings/HdmiSettings.java
++++ b/src/com/android/settings/HdmiSettings.java
+@@ -156,16 +156,12 @@ public class HdmiSettings extends SettingsPreferenceFragment
+         mHdmiDualScreen.setOnPreferenceChangeListener(this);
+  
+         mHdmiDualScreenVH = (CheckBoxPreference)findPreference(KEY_HDMI_DUAL_SCREEN_VH);
+-        mHdmiDualScreenVH.setEnabled(enable);
+-        if(enable) {
+-            mHdmiDualScreenVH.setChecked(SystemProperties.getBoolean("persist.orientation.vhshow", false));
+-        }
++        mHdmiDualScreenVH.setChecked(SystemProperties.getBoolean("persist.sys.rotation.efull", false));
+         mHdmiDualScreenVH.setOnPreferenceChangeListener(this);
+         mHdmiDualScreenList = (ListPreference)findPreference(KEY_HDMI_DUAL_SCREEN_LIST);
+         mHdmiDualScreenList.setOnPreferenceChangeListener(this);
+         mHdmiDualScreenList.setOnPreferenceClickListener(this);
+-        mHdmiDualScreenList.setEnabled(SystemProperties.getBoolean("persist.orientation.vhshow", false));
+-        Log.d(TAG, "onCreate---------------------");
++        Log.d(TAG, "---------onCreate---------------------");
+     }
+ 
+ 
+@@ -205,16 +201,8 @@ public class HdmiSettings extends SettingsPreferenceFragment
+         mDisplayManager.registerDisplayListener(mDisplayListener, null);
+         if (android.provider.Settings.System.getInt(getActivity().getContentResolver(),DOUBLE_SCREEN_STATE,0) == 0) {
+             mHdmiDualScreen.setEnabled(true);
+-            if(android.provider.Settings.System.getInt(getActivity().getContentResolver(),DOUBLE_SCREEN_CONFIG,0) == 1) {
+-                mHdmiDualScreenVH.setEnabled(true);
+-            } else {
+-                mHdmiDualScreenVH.setEnabled(false);
+-            }
+-            mHdmiDualScreenList.setEnabled(SystemProperties.getBoolean("persist.orientation.vhshow", false));
+         } else {
+             mHdmiDualScreen.setEnabled(false);
+-            mHdmiDualScreenVH.setEnabled(false);
+-            mHdmiDualScreenList.setEnabled(false);
+         }
+     }
+ 
+@@ -288,12 +276,6 @@ public class HdmiSettings extends SettingsPreferenceFragment
+             mHdmiResolution.setEnabled(false);
+             mHdmiScale.setEnabled(false);
+             mHdmiRotation.setEnabled(false);
+-	        //mHdmiDualScreen.setEnabled(false);
+-	        //mHdmiDualScreenVH.setEnabled(false);
+-	        mHdmiDualScreenList.setEnabled(false);
+-            SystemProperties.set("persist.orientation.vhshow", "false");
+-            SystemProperties.set("persist.orientation.vhinit", "0");
+-            mHdmiDualScreenVH.setChecked(false);
+         } else {
+             new Handler().postDelayed(new Runnable() {
+                 public void run() {
+@@ -309,8 +291,6 @@ public class HdmiSettings extends SettingsPreferenceFragment
+                         if(getActivity() != null && getActivity().getContentResolver() != null) {
+ 			                if (android.provider.Settings.System.getInt(getActivity().getContentResolver(),DOUBLE_SCREEN_STATE,0) == 0) {
+                                 mHdmiDualScreen.setEnabled(true);
+-                                mHdmiDualScreenVH.setEnabled(android.provider.Settings.System.getInt(getActivity().getContentResolver(),DOUBLE_SCREEN_CONFIG,0) == 1);
+-                                mHdmiDualScreenList.setEnabled(SystemProperties.getBoolean("persist.orientation.vhshow", false));
+                     	    }
+                         }
+                     }
+@@ -355,7 +335,7 @@ public class HdmiSettings extends SettingsPreferenceFragment
+         } else if (preference == mHdmiResolution) {
+             updateHDMIState();
+         } else if (preference == mHdmiDualScreenList) {
+-            String value = SystemProperties.get("persist.orientation.vhinit","0");
++            String value = SystemProperties.get("persist.sys.rotation.einit","0");
+             mHdmiDualScreenList.setValue(value);
+         }
+         return true;
+@@ -401,28 +381,35 @@ public class HdmiSettings extends SettingsPreferenceFragment
+             }
+ 	    } else if (preference == mHdmiDualScreen) {
+             android.provider.Settings.System.putInt(getActivity().getContentResolver(),DOUBLE_SCREEN_CONFIG,(Boolean)obj?1:0);
+-            SystemProperties.set("persist.orientation.vhinit", "0");
+-            SystemProperties.set("persist.orientation.vhshow", "false");
+-            mHdmiDualScreenVH.setEnabled((Boolean)obj);
+-            mHdmiDualScreenVH.setChecked(false);
+-            mHdmiDualScreenList.setEnabled(false);
+             this.finish();
+ 	    } else if (preference == mHdmiDualScreenVH) {
+             if((Boolean)obj) {
+-                SystemProperties.set("persist.orientation.vhshow", "true");   
+-                mHdmiDualScreenList.setEnabled(true);
++                SystemProperties.set("persist.sys.rotation.efull", "true");
+             } else {
+-                SystemProperties.set("persist.orientation.vhshow", "false");   
+-                mHdmiDualScreenList.setEnabled(false);
+-                SystemProperties.set("persist.orientation.vhinit", "0");
++                SystemProperties.set("persist.sys.rotation.efull", "false");
+             }
+-            SystemProperties.set("persist.orientation.vhinit", "0");
++            SystemProperties.set("sys.hdmi_status.aux", "off");
++            mSwitchBar.setEnabled(false);
++            new Handler().postDelayed(new Runnable() {
++                @Override
++                public void run() {
++                    SystemProperties.set("sys.hdmi_status.aux", "on");
++                    mSwitchBar.setEnabled(true);
++                }
++            },500);
+ 	    } else if (preference == mHdmiDualScreenList) {
+-            if("0".equals(obj.toString())) {
+-                SystemProperties.set("persist.orientation.vhinit", "0");
+-            } else if ("1".equals(obj.toString())) {
+-                SystemProperties.set("persist.orientation.vhinit", "1");
+-            }
++                SystemProperties.set("persist.sys.rotation.einit", obj.toString());
++                //mDisplayManager.forceScheduleTraversalLocked();
++                SystemProperties.set("sys.hdmi_status.aux", "off");
++                mSwitchBar.setEnabled(false);
++                new Handler().postDelayed(new Runnable() {
++                    @Override
++                    public void run() {
++                        SystemProperties.set("sys.hdmi_status.aux", "on");
++                        mSwitchBar.setEnabled(true);
++                    }
++                },500);
++
+         }
+         return true;
+     }
+-- 
+2.7.4
+
